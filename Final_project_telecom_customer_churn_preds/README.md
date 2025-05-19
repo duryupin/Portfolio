@@ -26,13 +26,6 @@
 Лучше всего показала себя **CatBoostClassifier** со следущими параметрами.
 
 **ROC_AUC_SCORE** тестовые данные: 0.926
-
-{'preprocessor__knn__Scaler': 'passthrough',
- 'models__random_strength': 3,
- 'models__learning_rate': 0.3,
- 'models__l2_leaf_reg': 5,
- 'models__iterations': 2000,
- 'models__depth': 4}
     
 | Параметры модели   | Значение       |
 |--------------------|----------------|
