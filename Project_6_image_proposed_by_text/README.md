@@ -8,3 +8,16 @@
 
 Ссылка на проект в kaggle:
 https://www.kaggle.com/code/denisur/project-5
+
+## Стэк:
+
+* python
+* pandas
+* numpy
+* matplotlib
+* seaborn
+* sklearn
+* torch
+* torchvision
+* transformers
+* nltk
