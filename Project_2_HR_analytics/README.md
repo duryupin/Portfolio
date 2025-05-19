@@ -13,6 +13,7 @@
 * pandas
 * numpy
 * matplotlib
+* seaborn
 * sklearn
 * scipy
 
