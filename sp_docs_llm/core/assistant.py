@@ -13,29 +13,26 @@ import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict
+from .config import *
 
 class BuildingCodeAssistant:
-    def __init__(self, index_path: str, metadata_path: str, api_key: str, folder_id: str):
-        """Инициализация с загрузкой индекса и метаданных"""
-        self.index = faiss.read_index(index_path)
-        with open(metadata_path, "r", encoding="utf-8") as f:
+    def __init__(self):
+        self.index = faiss.read_index(INDEX_PATH)
+        with open(METADATA_PATH, "r", encoding="utf-8") as f:
             self.metadata = json.load(f)
+        self.model = SentenceTransformer(EMBEDDING_MODEL)
 
-        self.model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
-        self.api_key = api_key
-        self.folder_id = folder_id
-        self.api_url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    def search(self, query: str, top_k: int = 3) -> List[Dict]:
+        """Семантический поиск по индексу"""
+        query_embed = self.model.encode([query])
+        distances, indices = self.index.search(np.array(query_embed), top_k)
+        return [self.metadata[i] for i in indices[0] if i < len(self.metadata)]
 
-    def semantic_search(self, query: str, top_k: int = 3) -> List[Dict]:
-        """Семантический поиск по индексу FAISS"""
-        query_embedding = self.model.encode([query])
-        distances, indices = self.index.search(query_embedding, top_k)
-        return [self.metadata[idx] for idx in indices[0] if idx < len(self.metadata)]
-
-    def generate_response(self, query: str) -> str:
-        """Генерация ответа через YandexGPT API"""
-        context_items = self.semantic_search(query)
-        context = "\n\n".join(f"[{item['source']}]\n{item['text']}" for item in context_items)
+    def generate_answer(self, query: str) -> str:
+        """Генерация ответа через YandexGPT"""
+        context_docs = self.search(query)
+        context = "\n".join(f"{doc['source']}, п.{doc.get('clause', '?')}:\n{doc['text']}" 
+                          for doc in context_docs)
 
         prompt = f"""
         Ты — эксперт по строительным нормам РФ c 20 летним стажем. Отвечай строго на основе предоставленного контекста.
@@ -53,16 +50,15 @@ class BuildingCodeAssistant:
         Если необходимо вывести таблицу с данными, то ты должен ее сгенерировать.
         """
 
-        headers = {"Authorization": f"Api-Key {self.api_key}", "Content-Type": "application/json"}
-        payload = {
-            "modelUri": f"gpt://{self.folder_id}/yandexgpt-lite/latest",
-            "messages": [{"role": "user", "text": prompt}],
-            "completionOptions": {"temperature": 0.1, "maxTokens": 2000}
-        }
-
-        try:
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=10)
-            return response.json()['result']['alternatives'][0]['message']['text']
-        except Exception as e:
-            return f"Ошибка: {str(e)}"
+        response = requests.post(
+            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+            headers={"Authorization": f"Api-Key {YC_API_KEY}"},
+            json={
+                "modelUri": YC_MODEL_URI,
+                "messages": [{"role": "user", "text": prompt}],
+                "completionOptions": {"temperature": 0.1}
+            },
+            timeout=10
+        )
+        return response.json()['result']['alternatives'][0]['message']['text']
 
