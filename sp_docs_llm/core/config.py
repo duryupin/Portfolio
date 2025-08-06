@@ -10,8 +10,8 @@ METADATA_PATH = DATA_DIR /  "metadata.json"
 PDF_DIR = DATA_DIR /  "sp_data"
 
 # Yandex Cloud API
-YC_API_KEY = "AQVN0TbFwlmioTPNtreDAC1WOmZU68A6cF6eXuWb"
-YC_FOLDER_ID = "b1gqog5m3dhlf83oafu9"
+YC_API_KEY = "test"
+YC_FOLDER_ID = "test"
 YC_MODEL_URI = f"gpt://{YC_FOLDER_ID}/yandexgpt-lite/latest"
 
 # Настройки модели
