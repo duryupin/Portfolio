@@ -77,6 +77,7 @@ class BuildingCodeAssistant:
 
         logger.info(f"Distances: {list(distances[0])}")
         logger.info(f"Indices: {list(indices[0])}")
+        
         return results
 
     def generate_answer(self, query: str) -> str:
