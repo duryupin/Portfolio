@@ -2,5 +2,5 @@ venv/
 pdf_files/
 .gitignore
 .venv
-config.py
+core/config.py
 __pycache__/
