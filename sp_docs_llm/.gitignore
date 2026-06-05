@@ -2,5 +2,12 @@ venv/
 pdf_files/
 .gitignore
 .venv
-core/config.py
 __pycache__/
+*.log
+data/
+process_light.log
+assistant.log
+
+# core/config.py was previously ignored; now unignored because secrets moved to .env
+# If you have local overrides, use .env or a local_config.py
+

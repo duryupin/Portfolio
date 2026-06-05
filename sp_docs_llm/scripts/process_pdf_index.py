@@ -49,18 +49,51 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 # === Утилиты ===
 
 def extract_clause(text: str) -> str | None:
-    # Более гибкая регулярка: поддерживает 1.2, 1.2а, 1.2.3-1, Приложение A
-    m = re.search(r'(приложен[ие|ия]\s*[A-Za-zА-Яа-я0-9\-]+|\d+(?:\.\d+)*[A-Za-zА-Яа-я\-]*)', text)
-    return m.group(0) if m else None
+    """Извлекает наиболее вероятный номер пункта/приложения/раздела/таблицы."""
+    if not text:
+        return None
+    # Порядок: от более специфичного к общему
+    patterns = [
+        r'(?:п\.?\s*|пункт\s+|пп\.\s*)(\d+(?:\.\d+)*[а-яА-Я]?)',
+        r'(приложен[ие|ия]\s*[A-Za-zА-Яа-я0-9\-]+)',
+        r'(?:раздел|гл\.?)\s*(\d+(?:\.\d+)*)',
+        r'(?:таблиц[а|ы]?|табл\.)\s*([A-Za-zА-Яа-я0-9\.\-]+)',
+        r'(\d{1,2}(?:\.\d{1,2}){1,3}[а-яА-Я]?)',  # 5.1.3.2
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE)
+        if m:
+            val = m.group(1) if m.lastindex else m.group(0)
+            return val.strip()
+    return None
 
 
 def clean_table_text(table: List[List]) -> str:
+    """Простая сериализация таблицы. Для больших таблиц сплит делается на уровне чанкинга."""
+    if not table:
+        return ""
     cleaned_rows = []
     for row in table:
         cleaned_row = " | ".join(str(cell).strip() if cell is not None else "" for cell in row)
         if cleaned_row.strip():
             cleaned_rows.append(cleaned_row)
     return "\n".join(cleaned_rows)
+
+
+def split_large_table(table: List[List], max_rows: int = 10) -> List[List[List]]:
+    """Разбивает большую таблицу на куски с повтором заголовка (если есть)."""
+    if not table or len(table) <= max_rows + 1:
+        return [table]
+    header = table[0] if len(table) > 1 else None
+    chunks = []
+    start = 1 if header else 0
+    for i in range(start, len(table), max_rows):
+        piece = []
+        if header:
+            piece.append(header)
+        piece.extend(table[i:i + max_rows])
+        chunks.append(piece)
+    return chunks
 
 
 def extract_text_and_tables_from_pdf(file_path: str) -> Tuple[str, List[List[List[str]]]]:
@@ -74,21 +107,31 @@ def extract_text_and_tables_from_pdf(file_path: str) -> Tuple[str, List[List[Lis
                 except Exception as e:
                     logger.warning(f"Ошибка извлечения текста: {e}")
                     page_text = ""
-                # Убираем лишние переносы строк, но сохраняем точки
-                page_text = page_text.replace('\n', ' ')
-                if page_text.strip():
+
+                # Улучшенная обработка: фиксим дефисы + не разрушаем всё в одну строку
+                page_text = fix_hyphenation(page_text)
+                page_text = re.sub(r'[ \t]+', ' ', page_text)
+                page_text = re.sub(r'\n{2,}', '\n\n', page_text).strip()
+
+                if page_text:
                     text_parts.append(page_text)
+
                 try:
-                    page_tables = page.extract_tables() or []
+                    page_tables = page.extract_tables(table_settings={
+                        "vertical_strategy": "text",
+                        "horizontal_strategy": "text",
+                        "snap_tolerance": 5,
+                        "text_tolerance": 3,
+                        "intersection_tolerance": 3,
+                    }) or []
                     for t in page_tables:
-                        # фильтруем пустые таблицы
                         if any(any(cell for cell in row) for row in t):
                             tables.append(t)
                 except Exception as e:
                     logger.warning(f"Ошибка извлечения таблиц: {e}")
     except Exception as e:
         logger.error(f"Не удалось открыть PDF {file_path}: {e}")
-    return " ".join(text_parts), tables
+    return "\n\n".join(text_parts), tables
 
 
 def clean_text(text: str) -> str:
@@ -98,29 +141,103 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
+def fix_hyphenation(text: str) -> str:
+    """Склеивает переносы слов в PDF (дефис в конце строки)."""
+    if not text:
+        return text
+    # После flatten часто остаётся "слово- слово"
+    text = re.sub(r'(\w)[-\u00ad]\s+(\w)', r'\1\2', text)
+    return text
+
+
+BOILERPLATE_FRAGMENTS = [
+    "МИНИСТЕРСТВО СТРОИТЕЛЬСТВА И ЖИЛИЩНО-КОММУНАЛЬНОГО ХОЗЯЙСТВА РОССИЙСКОЙ ФЕДЕРАЦИИ",
+    "СВОД ПРАВИЛ",
+    "Издание официальное",
+    "Введен в действие",
+    "ВВЕДЕН ВПЕРВЫЕ",
+]
+
+
+def remove_boilerplate(text: str) -> str:
+    """Удаляет типичный boilerplate и строки оглавления."""
+    for frag in BOILERPLATE_FRAGMENTS:
+        text = text.replace(frag, "")
+    # Убираем строки, которые выглядят как чистое оглавление
+    lines = text.splitlines()
+    cleaned = []
+    for l in lines:
+        s = l.strip()
+        if not s:
+            continue
+        if s.startswith(".....") or (s.count(".") > 8 and len(s) > 20):
+            continue
+        cleaned.append(l)
+    return "\n".join(cleaned)
+
+
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-    # Более робустный разбиение: сначала пытаемся по предложениям, иначе грубо по словам
-    # Снижаем чувствительность к отсутствию нормальных пробелов в PDF
-    # Разбиваем по точкам с учётом русской/лат латиницы
-    sents = re.split(r'(?<=[.!?;])\s+(?=[А-ЯA-Z0-9\(\"\'])', text)
+    """Структурный + sentence-aware чанкинг.
+
+    - Приоритет: заголовки пунктов/приложений (структурный сплит).
+    - Группируем только целые предложения.
+    - Размер контролируем по количеству слов (target ~ chunk_size).
+    - Никогда не режем предложение посередине.
+    """
+    if not text or not text.strip():
+        return []
+
+    # === 1. Структурный сплит по заголовкам пунктов/приложений ===
+    # Ищем паттерны начала пункта: "5.1.3 Текст..." или "Приложение А"
+    structural = re.split(
+        r'(?m)^(?=(\d{1,2}(?:\.\d{1,2}){0,3}\s+[А-ЯA-Z])|(Приложение\s+[А-ЯЁ]))',
+        text
+    )
+    if len(structural) > 1:
+        chunks: List[str] = []
+        for part in structural:
+            if part and part.strip():
+                chunks.extend(chunk_text(part, chunk_size, overlap))
+        return chunks
+
+    # === 2. Sentence split (улучшенный, терпимый к PDF-шуму) ===
+    sents = re.split(r'(?<=[.!?])\s+(?=[А-ЯA-Z0-9"\u00ab\(\)])', text)
     if len(sents) < 2:
-        sents = text.split()  # fallback
-    chunks = []
-    cur = []
-    cur_len = 0
+        sents = [text]
+
+    chunks: List[str] = []
+    current: List[str] = []
+    current_words = 0
+
     for sent in sents:
-        words = sent.split()
-        wlen = len(words)
-        if cur_len + wlen > chunk_size and cur:
-            chunks.append(' '.join(cur).strip())
-            # сохраняем overlap последних предложений/слов
-            cur = cur[-max(0, overlap // 10):]  # простая эвристика
-            cur_len = sum(len(s.split()) for s in cur)
-        cur.append(sent)
-        cur_len += wlen
-    if cur:
-        chunks.append(' '.join(cur).strip())
-    return chunks
+        sent = sent.strip()
+        if not sent:
+            continue
+        w = len(sent.split())
+        if current and current_words + w > chunk_size:
+            chunk_str = ' '.join(current).strip()
+            if chunk_str:
+                chunks.append(chunk_str)
+            # overlap — последние 1-2 полных предложения
+            keep: List[str] = []
+            keep_words = 0
+            for s in reversed(current):
+                sw = len(s.split())
+                if keep_words + sw > max(overlap, 40):
+                    break
+                keep.append(s)
+                keep_words += sw
+            current = list(reversed(keep))
+            current_words = keep_words
+
+        current.append(sent)
+        current_words += w
+
+    if current:
+        chunks.append(' '.join(current).strip())
+
+    # Отсекаем совсем мелкие чанки (шум)
+    return [c for c in chunks if len(c.split()) >= 15]
 
 
 # === Основная функция ===
@@ -143,7 +260,10 @@ def process_pdfs(recreate_index: bool = True):
             logger.warning(f"Empty file or failed extraction: {file}")
             continue
         cleaned = clean_text(raw_text)
-        chunks = chunk_text(cleaned)
+        cleaned = fix_hyphenation(cleaned)
+        cleaned = remove_boilerplate(cleaned)
+        # Используем новые целевые размеры (Phase 1). Старые CHUNK_SIZE/OVERLAP оставлены для совместимости.
+        chunks = chunk_text(cleaned, CHUNK_TARGET_WORDS, CHUNK_OVERLAP_WORDS)
         # Добавляем текстовые чанки
         for i, chunk in enumerate(chunks):
             if not chunk.strip():
@@ -158,22 +278,25 @@ def process_pdfs(recreate_index: bool = True):
             }
             documents.append(doc)
             batch_texts.append(chunk)
-        # Добавляем таблицы
-        for tidx, table in enumerate(tables):
-            table_text = clean_table_text(table)
-            if not table_text.strip():
-                continue
-            doc = {
-                "doc_id": f"{file}_table_{tidx}",
-                "source": file,
-                "chunk_index": f"table_{tidx}",
-                "text": table_text,
-                "is_table": True,
-                "table_data": table,
-                "clause": extract_clause(table_text)
-            }
-            documents.append(doc)
-            batch_texts.append(table_text)
+        # Добавляем таблицы (с опциональным сплитом больших таблиц + повтор заголовка)
+        table_counter = 0
+        for table in tables:
+            for sub_table in split_large_table(table, TABLE_MAX_ROWS_PER_CHUNK):
+                table_text = clean_table_text(sub_table)
+                if not table_text.strip():
+                    continue
+                doc = {
+                    "doc_id": f"{file}_table_{table_counter}",
+                    "source": file,
+                    "chunk_index": f"table_{table_counter}",
+                    "text": table_text,
+                    "is_table": True,
+                    "table_data": sub_table,
+                    "clause": extract_clause(table_text)
+                }
+                documents.append(doc)
+                batch_texts.append(table_text)
+                table_counter += 1
 
     logger.info(f"Total documents (pre-embeddings): {len(documents)}")
 

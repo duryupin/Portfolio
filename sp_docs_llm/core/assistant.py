@@ -15,7 +15,11 @@ import logging
 from pathlib import Path
 from typing import List, Dict
 
-from config import YC_API_KEY, YC_MODEL_URI, YC_FOLDER_ID
+try:
+    from config import YC_API_KEY, YC_MODEL_URI, YC_FOLDER_ID
+except ImportError:
+    # When imported as package (from scripts/ or elsewhere)
+    from .config import YC_API_KEY, YC_MODEL_URI, YC_FOLDER_ID
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +56,7 @@ class BuildingCodeAssistantLight:
             logger.warning("FAISS index size and metadata length mismatch")
 
     def search(self, query: str, top_k: int = 10, include_neighbors: bool = True) -> List[Dict]:
+        logger.info(f"Search query: {query}")
         q_emb = self.model.encode([query], show_progress_bar=False, normalize_embeddings=True).astype('float32')
         logger.info(f"Размерность эмбеддинга запроса: {q_emb.shape[1]}")
         
@@ -71,17 +76,27 @@ class BuildingCodeAssistantLight:
             if idx in seen:
                 continue
             seen.add(idx)
-            doc = self.metadata[idx]
+            doc = dict(self.metadata[idx])  # copy
+            doc["retrieval_score"] = float(score)
             results.append(doc)
-            # добавить соседние чанки (контекст)
+            # добавить соседние чанки (контекст) — только внутри того же источника (улучшение)
             if include_neighbors:
+                src = doc.get("source")
                 for n in (idx - 1, idx + 1):
                     if 0 <= n < len(self.metadata) and n not in seen:
-                        seen.add(n)
-                        results.append(self.metadata[n])
+                        neighbor = self.metadata[n]
+                        if neighbor.get("source") == src:
+                            seen.add(n)
+                            nd = dict(neighbor)
+                            nd["retrieval_score"] = None  # neighbor, no direct score
+                            results.append(nd)
+        # Логируем выбранные результаты
+        for i, d in enumerate(results[:8]):
+            logger.info(f"  Result {i}: score={d.get('retrieval_score')}, source={d.get('source')}, clause={d.get('clause')}, is_table={d.get('is_table')}")
         return results
 
     def generate_answer(self, query: str) -> str:
+        logger.info(f"generate_answer query: {query}")
         docs = self.search(query)
         if not docs:
             return "❌ Требование не регламентировано в предоставленных документах."
