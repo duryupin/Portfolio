@@ -8,3 +8,12 @@
 | [Project_5 - Прогнозирование ДТП.](https://github.com/duryupin/Portfolio_Yandex_Practicum/tree/main/Project_5_car_collision_preds) | Создать модель предсказания ДТП   | ... lightgbm, sqlalchemy, category_encoders, time |
 | [Project_6 - Поиск изображения по запросу.](https://github.com/duryupin/Portfolio_Yandex_Practicum/tree/main/Project_6_image_proposed_by_text) | Необходимо разработать демонстрационную версию поиска изображений по запросу.   | ... torch, torchvision, transformers, nltk, PIL, tqdm  |
 | [Final_project - Поиск изображения по запросу.](https://github.com/duryupin/Portfolio_Yandex_Practicum/tree/main/Final_project_telecom_customer_churn_preds) | Прогнозирование оттока клиентов оператора связи. | ... sklearn, torch, catboost, sqlalchemy |
+
+## Рабочие проекты
+
+| Название проекта | Краткое описание | Стэк |
+|-------------|-----------------|---------------|
+| [Буфет](https://github.com/duryupin/bufet) | Личный расчёт справедливой цены акций Московской биржи по прибыли собственника. Рядом стоят рыночная цена и цена модели. Это не брокер и не инвестиционная рекомендация. | Python 3.11, SQLite, Android (Kotlin) |
+| [ml-trading](https://github.com/duryupin/ml_trading) | Дневной бот по акциям Мосбиржи: сигнал по закрытому дню, заявка на следующее открытие. Живая книга держит SBER, ROSN и запасной MTSS. Это своя книга, не рекомендация. | Python, pandas, scikit-learn, lightgbm, aiomoex |
+| [sp_docs_llm](https://github.com/duryupin/Portfolio/tree/main/sp_docs_llm) | Локальный поиск по строительным нормам. Ответ опирается на найденный фрагмент и называет шифр и пункт. Это не калькулятор норм и не замена чтения свода. | Python, FAISS, BM25, pdfplumber, YandexGPT |
+| [Нормоконтроль](https://github.com/duryupin/Portfolio/tree/main/norm_check) | Локальная проверка PDF и DWG по правилам и нормам. На выходе отчёт PDF для проектировщика. Это не экспертиза и не заключение эксперта. | Python, pdfplumber, ezdwg, reportlab, ifcopenshell |

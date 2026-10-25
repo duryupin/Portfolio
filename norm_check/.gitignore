@@ -1,0 +1,9 @@
+inbox/**
+!inbox/README.md
+!inbox/.gitkeep
+
+uploads/
+.env
+.venv/
+__pycache__/
+*.pyc
